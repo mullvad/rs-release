@@ -1,0 +1,4 @@
+binop_separator = "Back"
+force_multiline_blocks = true
+indent_style = "Visual"
+reorder_imports = false
