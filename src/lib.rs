@@ -97,7 +97,7 @@ impl Error for OsReleaseError {
 
 impl From<std::io::Error> for OsReleaseError {
     fn from(err: std::io::Error) -> OsReleaseError {
-       OsReleaseError::Io(err)
+        OsReleaseError::Io(err)
     }
 }
 
