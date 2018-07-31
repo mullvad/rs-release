@@ -8,16 +8,19 @@
 //! let os_release_path = "/etc/os-release";
 //! if let Ok(os_release) = parse_os_release(os_release_path) {
 //!     println!("Parsed os-release:");
-//!     for (k, v) in os_release {
-//!         println!("{}={}", k, v);
+//!     for entry in os_release {
+//!         if let Ok((k, v)) = entry {
+//!             println!("{}={}", k, v);
+//!         } else {
+//!             println!("Cannot parse entry from {}", os_release_path);
+//!         }
 //!     }
 //! } else {
-//!     println!("Cannot parse {}", os_release_path);
+//!     println!("Cannot open {}", os_release_path);
 //! }
 //! ```
 #![deny(missing_docs)]
 
-use std::collections::HashMap;
 use std::convert::From;
 use std::error::Error;
 use std::fmt;
@@ -131,40 +134,49 @@ fn extract_variable_and_value(s: &str) -> Result<(Cow<'static, str>, String)> {
 }
 
 /// Parses key-value pairs from `path`
-pub fn parse_os_release<P: AsRef<Path>>(path: P) -> Result<HashMap<Cow<'static, str>, String>> {
-    let mut os_release = HashMap::new();
-    let file = try!(File::open(path));
+pub fn parse_os_release<P: AsRef<Path>>(
+    path: P)
+    -> Result<impl Iterator<Item = Result<(Cow<'static, str>, String)>>> {
+    let file = File::open(path)?;
     let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line = try!(line);
-        let line = line.trim();
 
-        if line.starts_with('#') || line.is_empty() {
-            continue;
-        }
-        let var_val = try!(extract_variable_and_value(line));
-        os_release.insert(var_val.0, var_val.1);
-    }
-    Ok(os_release)
+    Ok(parse_os_release_lines(reader.lines().map(|line_result| {
+                                                     line_result.map(Cow::Owned)
+                                                 })))
 }
 
 /// Parses key-value pairs from `data` string
-pub fn parse_os_release_str(data: &str) -> Result<HashMap<Cow<'static, str>, String>> {
-    let mut os_release = HashMap::new();
-    for line in data.split('\n') {
-        let line = line.trim();
+pub fn parse_os_release_str<'a>(
+    data: &'a str)
+    -> impl Iterator<Item = Result<(Cow<'static, str>, String)>> + 'a {
+    parse_os_release_lines(data.lines().map(Cow::Borrowed).map(Ok))
+}
 
-        if line.starts_with('#') || line.is_empty() {
-            continue;
-        }
-        let var_val = try!(extract_variable_and_value(line));
-        os_release.insert(var_val.0, var_val.1);
-    }
-    Ok(os_release)
+/// Parses key-value pairs from an iterator over line results
+pub fn parse_os_release_lines<'a, L>(
+    lines: L)
+    -> impl Iterator<Item = Result<(Cow<'static, str>, String)>> + 'a
+    where L: Iterator<Item = std::io::Result<Cow<'a, str>>> + 'a
+{
+    lines.filter(|line_result| {
+                     if let Ok(line) = line_result {
+                         let trimmed_line = line.trim_left();
+
+                         !trimmed_line.is_empty() && !trimmed_line.starts_with('#')
+                     } else {
+                         true
+                     }
+                 })
+         .map(|line_result| {
+                  match line_result {
+                      Ok(line) => extract_variable_and_value(&line),
+                      Err(error) => Err(OsReleaseError::Io(error)),
+                  }
+              })
 }
 
 /// Tries to find and parse os-release in common paths. Stops on success.
-pub fn get_os_release() -> Result<HashMap<Cow<'static, str>, String>> {
+pub fn get_os_release() -> Result<impl Iterator<Item = Result<(Cow<'static, str>, String)>>> {
     for file in &PATHS {
         if let Ok(os_release) = parse_os_release(file) {
             return Ok(os_release);

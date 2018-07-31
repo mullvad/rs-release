@@ -9,10 +9,13 @@ enum Error {
 }
 
 fn get_os_id() -> Result<String, Error> {
-    match rs_release::get_os_release() {
-        Err(_) => Err(Error::ReadError),
-        Ok(mut os_release) => os_release.remove("ID").ok_or(Error::UnknownOs),
-    }
+    let os_release = rs_release::get_os_release().map_err(|_| Error::ReadError)?;
+
+    os_release
+        .filter_map(Result::ok)
+        .find(|(key, _)| key == "ID")
+        .map(|(_, value)| value)
+        .ok_or(Error::UnknownOs)
 }
 
 // https://blog.tinned-software.net/show-installed-yum-packages-by-size/
